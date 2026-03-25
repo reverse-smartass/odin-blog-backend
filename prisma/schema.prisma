@@ -19,6 +19,7 @@ model User {
   password String @default("placeholder")
   posts Post[]
   comments Comment[]
+  Role  String  @default("BASIC")
 } 
 
 model Post { 
