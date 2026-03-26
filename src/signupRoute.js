@@ -1,10 +1,11 @@
-import {Router} from 'express';
-import jwt from 'jsonwebtoken';
-import prisma from '../lib/prisma.ts';
+import { Router } from "express";
+import jwt from "jsonwebtoken";
+import prisma from "../lib/prisma.ts";
 import { body, validationResult } from "express-validator";
-import bcrypt from 'bcryptjs';
+import bcrypt from "bcryptjs";
 
 const signupRouter = Router();
+const allowedRoles = ["BASIC", "ADMIN"];
 
 const validateSignUp = [
   body("first_name")
@@ -25,6 +26,17 @@ const validateSignUp = [
   body("password")
     .isLength({ min: 6 })
     .withMessage("Password must be at least 6 characters"),
+  body("role")
+    .trim()
+    .notEmpty()
+    .withMessage("Role is required")
+    .escape()
+    .custom((value) => {
+      if (!allowedRoles.includes(value)) {
+        throw new Error("Invalid selection");
+      }
+      return true;
+    }),
 
   // Custom validator to check if passwords match
   body("password_confirm").custom((value, { req }) => {
@@ -44,26 +56,29 @@ signupRouter.post("/", validateSignUp, async (req, res, next) => {
       previousData: req.body,
     });
   }
-  const { first_name, last_name, email, password, password_confirm } = req.body;
-  if (first_name && last_name && email && password && password_confirm) {
-    try {
-      const hashedPassword = await bcrypt.hash(password, 10);
+  const { first_name, last_name, email, password, role } = req.body;
 
-      const user = await prisma.user.create({
-        data: {
-          name: first_name + " " + last_name,
-          email: email,
-          password: hashedPassword,
-        },
-        include: {
-          posts: true,
-        },
-      });
-      console.log("Created user:", user);
-      res.status(201).json({message: 'user created', user : {id: user.id, email: user.email, uname: user.name}, token});
-    } catch (err) {
-      return next(err);
-    }
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name: first_name + " " + last_name,
+        email: email,
+        password: hashedPassword,
+        role: role,
+      },
+      include: {
+        posts: true,
+      },
+    });
+    console.log("Created user:", user);
+    res.status(201).json({
+      message: "user created",
+      user: { id: user.id, email: user.email, uname: user.name },
+    });
+  } catch (err) {
+    return next(err);
   }
 });
 

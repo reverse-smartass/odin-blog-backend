@@ -7,13 +7,15 @@ import bcrypt from "bcryptjs";
 import signupRouter from "./signupRoute.js";
 import passport from "passport";
 import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
-
+import postRouter from "./postsRoute.js";
+import { type } from "node:os";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 app.use("/sign-up", signupRouter);
+app.use("/posts", postRouter);
 
 passport.use(
   new LocalStrategy(async (username, password, done) => {
@@ -37,6 +39,28 @@ passport.use(
     }
   }),
 );
+
+const options = {
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: process.env.JWT_SECRET || "a safe secret",
+};
+
+passport.use(
+  new JwtStrategy(options, async (jwt_payload, done) => {
+    console.log("JWT Payload received:", jwt_payload);
+    try {
+      // The 'jwt_payload' contains whatever you put in jwt.sign()
+      const user = await prisma.user.findUnique({ where: { id: jwt_payload.id } });
+      
+      if (user) return done(null, user);
+      return done(null, false);
+    } catch (error) {
+      return done(error, false);
+    }
+  })
+);
+
+app.use(passport.initialize());
 
 app.get("/users", async (req, res) => {
   const result = await prisma.user.findMany();
@@ -67,35 +91,6 @@ app.get("/users/:userid/comments", async (req, res) => {
   res.json(result);
 });
 
-app.get("/posts", async (req, res) => {
-  const result = await prisma.post.findMany();
-  res.json({ result });
-});
-
-app.get("/posts/:postid", async (req, res) => {
-  const postId = req.params.postid;
-
-  const result = await prisma.post.findUnique({
-    where: {
-      id: postId,
-    },
-  });
-
-  res.json(result);
-});
-
-app.get("/posts/:postid/comments", async (req, res) => {
-  const postId = req.params.postid;
-
-  const result = await prisma.comment.findMany({
-    where: {
-      id: postId,
-    },
-  });
-
-  res.json(result);
-});
-
 app.post("/login", (req, res, next) => {
   passport.authenticate(
     "local",
@@ -112,7 +107,7 @@ app.post("/login", (req, res, next) => {
       }
 
       const token = jwt.sign(
-        { user: user.id },
+        { id: user.id },
         process.env.JWT_SECRET || "secretkey",
         { expiresIn: "1d" },
       );
@@ -123,11 +118,32 @@ app.post("/login", (req, res, next) => {
         token,
       });
     },
-  )
-  (req, res, next);
+  )(req, res, next);
 });
 
+export function verifyToken(req, res, next) {
+  const bearerHeader = req.headers["authorization"];
 
+  if (typeof bearerHeader !== undefined) {
+    const header = bearerHeader.split(" ");
+
+    const token = header[1];
+
+    res.token = token;
+
+    jwt.verify(token, "secretkey", async (err, authData) => {
+      if (err) return res.status(403);
+
+      const user = await prisma.user.findUnique({
+        where: { id: authData.user },
+      });
+      req.user = user;
+      next();
+    });
+  } else {
+    res.sendStatus(403);
+  }
+}
 
 app.listen(5000, (error) => {
   if (error) {
